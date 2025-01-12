@@ -1,0 +1,149 @@
+import cv2
+# import pytesseract
+from ultralytics import YOLO
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime
+from collections import deque
+import time
+import re
+import easyocr
+
+
+cred = credentials.Certificate("psio-parking-firebase-adminsdk-gl8z1-0a718a35b4.json")
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+
+# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+
+plate_model = YOLO("license_plate_detector.pt")
+# car_model = YOLO("yolov8n.pt")
+
+
+reader = easyocr.Reader(['en'],  gpu=True)
+
+
+ENTRY_ZONE = (0, 25, 483, 535)
+EXIT_ZONE = (486, 25, 958, 535)
+
+recent_plates = deque(maxlen=5)
+last_logged_time = {}
+
+def log_to_firebase(data):
+    plates_ref = db.collection("parking_logs")
+    existing_plates = plates_ref.where("license_plate", "==", data["license_plate"]).get()
+
+    if not existing_plates:
+        db.collection("parking_logs").add(data)
+        print("Logged to Firebase:", data)
+    else:
+        print(f"Plate {data['license_plate']} already exists in the database. Skipping log.")
+
+# def is_valid_license_plate(plate_text):
+#     pattern = r'^[A-Z0-9]{6,8}$'  # Plates with 6-8 alphanumeric characters (you can modify this pattern)
+#     return bool(re.match(pattern, plate_text))
+#
+
+
+# def should_log_plate(plate_text):
+#     current_time = time.time()
+#     #
+#     # if not is_valid_license_plate(plate_text):
+#     #     return False  # Reject invalid plates
+#     if plate_text in last_logged_time:
+#         time_since_last_log = current_time - last_logged_time[plate_text]
+#         if time_since_last_log < 5:
+#             return False
+#
+#     recent_plates.append(plate_text)
+#     last_logged_time[plate_text] = current_time
+#     return True
+
+def detect_vehicles_and_plates(frame):
+    plate_results = plate_model(frame, save=False, verbose=False)
+    # car_results = car_model(frame, save=False, verbose=False)
+
+    gate_type = None
+    plate_text = None
+
+    for plate_result in plate_results:
+        for box in plate_result.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            cls = int(box.cls[0])
+            label = plate_model.names[cls] if cls < len(plate_model.names) else "Unknown"
+
+            if label == "license_plate":
+                if x1 >= ENTRY_ZONE[0] and x2 <= ENTRY_ZONE[2] and y1 >= ENTRY_ZONE[1] and y2 <= ENTRY_ZONE[3]:
+                    gate_type = "entry"
+                elif x1 >= EXIT_ZONE[0] and x2 <= EXIT_ZONE[2] and y1 >= EXIT_ZONE[1] and y2 <= EXIT_ZONE[3]:
+                    gate_type = "exit"
+
+
+                plate_img = frame[y1:y2, x1:x2]
+                gray_plate = cv2.cvtColor(plate_img, cv2.COLOR_BGR2GRAY)
+                _, thresh_plate = cv2.threshold(gray_plate, 150, 255, cv2.THRESH_BINARY)
+
+                result = reader.readtext(thresh_plate)
+                if result:
+                    plate_text = result[0][1].strip().replace(' ', '')
+
+                color = (0, 255, 0) if gate_type == "entry" else (0, 0, 255)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(frame, f"{label}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+    # Process vehicle detections
+    # for car_result in car_results:
+    #     for box in car_result.boxes:
+    #         x1, y1, x2, y2 = map(int, box.xyxy[0])
+    #         cls = int(box.cls[0])  # Class index
+    #         label = car_model.names[cls] if cls < len(car_model.names) else "Unknown"
+    #
+    #         if label == "car":  # Adjust based on your model's labels
+    #             # Draw bounding box for vehicles
+    #             cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+    #             cv2.putText(frame, f"{label}", (x1, y1 - 10),
+    #                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+    return plate_text, gate_type
+
+def process_single_camera():
+    cap = cv2.VideoCapture(1)
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        plate_text, gate_type = detect_vehicles_and_plates(frame)
+        # and should_log_plate(plate_text):
+        if plate_text:
+            log_data = {
+                "license_plate": plate_text,
+                "timestamp": datetime.now().isoformat(),
+                "status": gate_type
+            }
+            log_to_firebase(log_data)
+
+        cv2.rectangle(frame, (ENTRY_ZONE[0], ENTRY_ZONE[1]), (ENTRY_ZONE[2], ENTRY_ZONE[3]), (0, 255, 0), 2)
+        cv2.putText(frame, "ENTRY ZONE", (ENTRY_ZONE[0], ENTRY_ZONE[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        cv2.rectangle(frame, (EXIT_ZONE[0], EXIT_ZONE[1]), (EXIT_ZONE[2], EXIT_ZONE[3]), (0, 0, 255), 2)
+        cv2.putText(frame, "EXIT ZONE", (EXIT_ZONE[0], EXIT_ZONE[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+        cv2.imshow("Parking System", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    process_single_camera()
+
