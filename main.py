@@ -8,7 +8,8 @@ from collections import deque
 import time
 import re
 import easyocr
-
+GATE_COOLDOWN = 10
+plate_last_opened = {}
 
 cred = credentials.Certificate("psio-parking-firebase-adminsdk-gl8z1-0a718a35b4.json")
 firebase_admin.initialize_app(cred)
@@ -31,6 +32,21 @@ EXIT_ZONE = (486, 25, 958, 535)
 recent_plates = deque(maxlen=5)
 last_logged_time = {}
 
+def check_plate_in_database(plate_text):
+    return True
+
+def open_gate(gate_type):
+    print(f"Opening {gate_type} gate.")
+
+
+def close_gate(gate_type):
+    print(f"Closing {gate_type} gate.")
+
+
+def check_plate_in_database(plate_text):
+    plates_ref = db.collection("parking_logs")
+    existing_paltes = plates_ref.where("llicense_plate", "==", plate_text).get()
+    return bool(existing_paltes)
 def log_to_firebase(data):
     plates_ref = db.collection("parking_logs")
     existing_plates = plates_ref.where("license_plate", "==", data["license_plate"]).get()
@@ -109,33 +125,46 @@ def detect_vehicles_and_plates(frame):
 
     return plate_text, gate_type
 
+
 def process_single_camera():
     cap = cv2.VideoCapture(1)
+
+    desired_width = 640
+    desired_height = 360
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
-        plate_text, gate_type = detect_vehicles_and_plates(frame)
-        # and should_log_plate(plate_text):
-        if plate_text:
-            log_data = {
-                "license_plate": plate_text,
-                "timestamp": datetime.now().isoformat(),
-                "status": gate_type
-            }
-            log_to_firebase(log_data)
 
-        cv2.rectangle(frame, (ENTRY_ZONE[0], ENTRY_ZONE[1]), (ENTRY_ZONE[2], ENTRY_ZONE[3]), (0, 255, 0), 2)
-        cv2.putText(frame, "ENTRY ZONE", (ENTRY_ZONE[0], ENTRY_ZONE[1] - 10),
+        frame_resized = cv2.resize(frame, (desired_width, desired_height))
+
+        plate_text, gate_type = detect_vehicles_and_plates(frame_resized)
+
+        if plate_text:
+            current_time = time.time()
+
+            if check_plate_in_database(plate_text) and gate_type == "entry":
+                if plate_text not in plate_last_opened or (
+                        current_time - plate_last_opened[plate_text]) > GATE_COOLDOWN:
+                    open_gate(gate_type)
+                    plate_last_opened[plate_text] = current_time
+
+                    time.sleep(GATE_COOLDOWN)
+                    close_gate(gate_type)
+
+        frame_output = cv2.resize(frame_resized, (frame.shape[1], frame.shape[0]))
+
+        cv2.rectangle(frame_output, (ENTRY_ZONE[0], ENTRY_ZONE[1]), (ENTRY_ZONE[2], ENTRY_ZONE[3]), (0, 255, 0), 2)
+        cv2.putText(frame_output, "ENTRY ZONE", (ENTRY_ZONE[0], ENTRY_ZONE[1] - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        cv2.rectangle(frame, (EXIT_ZONE[0], EXIT_ZONE[1]), (EXIT_ZONE[2], EXIT_ZONE[3]), (0, 0, 255), 2)
-        cv2.putText(frame, "EXIT ZONE", (EXIT_ZONE[0], EXIT_ZONE[1] - 10),
+        cv2.rectangle(frame_output, (EXIT_ZONE[0], EXIT_ZONE[1]), (EXIT_ZONE[2], EXIT_ZONE[3]), (0, 0, 255), 2)
+        cv2.putText(frame_output, "EXIT ZONE", (EXIT_ZONE[0], EXIT_ZONE[1] - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
-        cv2.imshow("Parking System", frame)
+        cv2.imshow("Parking System", frame_output)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
