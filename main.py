@@ -11,7 +11,7 @@ import easyocr
 GATE_COOLDOWN = 10
 plate_last_opened = {}
 
-cred = credentials.Certificate("psio-parking-firebase-adminsdk-gl8z1-0a718a35b4.json")
+cred = credentials.Certificate("psio-parking-firebase-adminsdk-gl8z1-55d95c00aa.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -175,4 +175,3 @@ def process_single_camera():
 
 if __name__ == "__main__":
     process_single_camera()
-
