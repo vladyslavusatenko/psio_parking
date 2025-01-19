@@ -8,7 +8,8 @@ from collections import deque
 import time
 import re
 import easyocr
-GATE_COOLDOWN = 10
+
+GATE_COOLDOWN = 5
 plate_last_opened = {}
 
 cred = credentials.Certificate("psio-parking-firebase-adminsdk-gl8z1-55d95c00aa.json")
@@ -26,8 +27,8 @@ plate_model = YOLO("license_plate_detector.pt")
 reader = easyocr.Reader(['en'],  gpu=True)
 
 
-ENTRY_ZONE = (0, 25, 483, 535)
-EXIT_ZONE = (486, 25, 958, 535)
+ENTRY_ZONE = (0, 25, 958, 535)
+# EXIT_ZONE = (486, 25, 958, 535)
 
 recent_plates = deque(maxlen=5)
 last_logged_time = {}
@@ -45,7 +46,7 @@ def close_gate(gate_type):
 
 def check_plate_in_database(plate_text):
     plates_ref = db.collection("parking_logs")
-    existing_paltes = plates_ref.where("llicense_plate", "==", plate_text).get()
+    existing_paltes = plates_ref.where("license_plate", "==", plate_text).get()
     return bool(existing_paltes)
 def log_to_firebase(data):
     plates_ref = db.collection("parking_logs")
@@ -93,8 +94,8 @@ def detect_vehicles_and_plates(frame):
             if label == "license_plate":
                 if x1 >= ENTRY_ZONE[0] and x2 <= ENTRY_ZONE[2] and y1 >= ENTRY_ZONE[1] and y2 <= ENTRY_ZONE[3]:
                     gate_type = "entry"
-                elif x1 >= EXIT_ZONE[0] and x2 <= EXIT_ZONE[2] and y1 >= EXIT_ZONE[1] and y2 <= EXIT_ZONE[3]:
-                    gate_type = "exit"
+                # elif x1 >= EXIT_ZONE[0] and x2 <= EXIT_ZONE[2] and y1 >= EXIT_ZONE[1] and y2 <= EXIT_ZONE[3]:
+                #     gate_type = "exit"
 
 
                 plate_img = frame[y1:y2, x1:x2]
@@ -127,7 +128,7 @@ def detect_vehicles_and_plates(frame):
 
 
 def process_single_camera():
-    cap = cv2.VideoCapture(1)
+    cap = cv2.VideoCapture(0)
 
     desired_width = 640
     desired_height = 360
@@ -160,9 +161,9 @@ def process_single_camera():
         cv2.putText(frame_output, "ENTRY ZONE", (ENTRY_ZONE[0], ENTRY_ZONE[1] - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        cv2.rectangle(frame_output, (EXIT_ZONE[0], EXIT_ZONE[1]), (EXIT_ZONE[2], EXIT_ZONE[3]), (0, 0, 255), 2)
-        cv2.putText(frame_output, "EXIT ZONE", (EXIT_ZONE[0], EXIT_ZONE[1] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        # cv2.rectangle(frame_output, (EXIT_ZONE[0], EXIT_ZONE[1]), (EXIT_ZONE[2], EXIT_ZONE[3]), (0, 0, 255), 2)
+        # cv2.putText(frame_output, "EXIT ZONE", (EXIT_ZONE[0], EXIT_ZONE[1] - 10),
+        #             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
         cv2.imshow("Parking System", frame_output)
 
@@ -175,3 +176,4 @@ def process_single_camera():
 
 if __name__ == "__main__":
     process_single_camera()
+
