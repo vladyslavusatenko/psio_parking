@@ -21,7 +21,7 @@ db = firestore.client()
 
 
 plate_model = YOLO("license_plate_detector.pt")
-# car_model = YOLO("yolov8n.pt")
+car_model = YOLO("best_car_detection.pt")
 
 
 reader = easyocr.Reader(['en'],  gpu=True)
@@ -80,7 +80,7 @@ def log_to_firebase(data):
 
 def detect_vehicles_and_plates(frame):
     plate_results = plate_model(frame, save=False, verbose=False)
-    # car_results = car_model(frame, save=False, verbose=False)
+    car_results = car_model(frame, save=False, verbose=False)
 
     gate_type = None
     plate_text = None
@@ -111,18 +111,17 @@ def detect_vehicles_and_plates(frame):
                 cv2.putText(frame, f"{label}", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-    # Process vehicle detections
-    # for car_result in car_results:
-    #     for box in car_result.boxes:
-    #         x1, y1, x2, y2 = map(int, box.xyxy[0])
-    #         cls = int(box.cls[0])  # Class index
-    #         label = car_model.names[cls] if cls < len(car_model.names) else "Unknown"
-    #
-    #         if label == "car":  # Adjust based on your model's labels
-    #             # Draw bounding box for vehicles
-    #             cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-    #             cv2.putText(frame, f"{label}", (x1, y1 - 10),
-    #                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+    for car_result in car_results:
+        for box in car_result.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            cls = int(box.cls[0])  # Class index
+            label = car_model.names[cls] if cls < len(car_model.names) else "Unknown"
+
+            if label == "cars":  # Adjust based on your model's labels
+                # Draw bounding box for vehicles
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                cv2.putText(frame, f"{label}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
     return plate_text, gate_type
 
@@ -176,4 +175,5 @@ def process_single_camera():
 
 if __name__ == "__main__":
     process_single_camera()
+
 
