@@ -1,4 +1,0 @@
-firebase_admin
-ultralytics
-opencv-python
-easyocr
